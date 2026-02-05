@@ -1,6 +1,10 @@
 checkpoints/
 outputs/
 
+# Mesh assets and numpy mask cache
+*.glb
+*.npy
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
