@@ -144,13 +144,13 @@ class Renderer:
             """
             return np.where(depth > 0, alpha * (1.0 - range_norm(depth, offset=offset)), 1)
 
-        def render_faces(faces: NumpyTensor['h w 3']) -> NumpyTensor['h w']:
-            """
-            """
-            faces = faces.astype(np.int32)
-            faces = faces[:, :, 0] * 65536 + faces[:, :, 1] * 256 + faces[:, :, 2]
-            faces[faces == (256 ** 3 - 1)] = -1 # set background to -1
-            return faces
+        def render_faces(faces_rgb: NumpyTensor['h w 3']) -> NumpyTensor['h w']:
+            faces = faces_rgb.astype(np.int32)
+            face_ids = faces[:, :, 0] * 65536 + faces[:, :, 1] * 256 + faces[:, :, 2]
+            face_ids[face_ids == (256 ** 3 - 1)] = -1  # set background to -1
+            max_face_id = len(self.tmesh.faces) - 1
+            face_ids[face_ids > max_face_id] = -1  # invalidate out-of-bounds IDs
+            return face_ids
 
         def render_bcent(bcent: NumpyTensor['h w 3']) -> NumpyTensor['h w 3']:
             """
@@ -166,9 +166,16 @@ class Renderer:
         ) -> NumpyTensor['h w 3']:
             """
             """
-            if interpolate_norms: # NOTE requires process=True
+            do_interp = interpolate_norms  # capture value safely
+
+            if do_interp:
+                if np.max(faces) >= len(self.tmesh.faces):
+                    print("⚠️ Face indices out of bounds — skipping interpolation.")
+                    do_interp = False
+
+            if do_interp:
                 verts_index = self.tmesh.faces[faces.reshape(-1)]    # (n, 3)
-                verts_norms = self.tmesh.vertex_normals[verts_index] # (n, 3, 3)
+                verts_norms = self.tmesh.vertex_normals[verts_index] # (n, a3, 3)
                 norms = np.sum(verts_norms * bcent.reshape(-1, 3, 1), axis=1)
                 norms = norms.reshape(bcent.shape)
 
@@ -182,7 +189,8 @@ class Renderer:
             if blur_matte:
                 matte = (faces == -1)[:, :, None] * matte + \
                         (faces != -1)[:, :, None] * cv2.GaussianBlur(matte, (gaussian_kernel_width, gaussian_kernel_width), gaussian_sigma)
-            return matte 
+            return matte
+
 
         norms = render_norms(raw_norms)
         depth = render_depth(raw_depth)

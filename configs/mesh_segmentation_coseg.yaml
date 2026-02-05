@@ -1,11 +1,10 @@
 ---
-cache: /home/gtangg12/samesh/outputs/mesh_segmentation_cache_coseg
-cache_overwrite: False
-output: /home/gtangg12/samesh/outputs/mesh_segmentation_output_coseg
-
+cache: /home/maelys/WSL_AI_HUB/TOOLS/samesh/outputs/mesh_segmentation_cache_coseg
+cache_overwrite: True
+output: /home/maelys/WSL_AI_HUB/TOOLS/samesh/outputs/mesh_segmentation_output_coseg
 sam:
   sam:
-    checkpoint: /home/gtangg12/samesh/checkpoints/sam2_hiera_large.pt
+    checkpoint: /home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam2_hiera_large.pt
     model_config: sam2_hiera_l.yaml
     auto: True
     ground: False

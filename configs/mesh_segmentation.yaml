@@ -1,14 +1,18 @@
 ---
-cache: /home/gtangg12/samesh/outputs/mesh_segmentation_cache
-cache_overwrite: False
-output: /home/gtangg12/samesh/outputs/mesh_segmentation_output
+cache: /home/maelys/WSL_AI_HUB/TOOLS/samesh/outputs/mesh_segmentation_cache
+cache_overwrite: True
+output: /home/maelys/WSL_AI_HUB/TOOLS/samesh/outputs/mesh_segmentation_output
 
 sam:
-  sam:
-    checkpoint: /home/gtangg12/samesh/checkpoints/sam2_hiera_large.pt
+  # Model selection: 'sam2' or 'sam3'
+  model_type: sam3
+  
+  # SAM2 configuration (legacy)
+  sam2:
+    checkpoint: /home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam2_hiera_large.pt
     model_config: sam2_hiera_l.yaml
     auto: True
-    ground: False
+    ground: True
     engine_config:
       points_per_side: 32
       crop_n_layers: 0
@@ -16,23 +20,44 @@ sam:
       pred_iou_thresh: 0.5
       stability_score_thresh: 0.7
       stability_score_offset: 1.0
+  
+  # SAM3 configuration (new) - ULTRA-AGGRESSIVE for maximum segmentation
+  sam3:
+    checkpoint: /home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam3.pt
+    auto: True
+    text_prompt: "individual part"  # More aggressive prompt
+    threshold: 0.05  # ULTRA-LOW threshold to capture tiny segments
+    mask_threshold: 0.05  # ULTRA-LOW mask threshold for maximum detail
+    engine_config:
+      points_per_side: 128  # MAXIMUM points for finest segmentation
+  
+  # Active configuration (will be used by the model) - ULTRA-AGGRESSIVE SAM3
+  sam:
+    checkpoint: /home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam3.pt
+    model_type: sam3
+    auto: True
+    text_prompt: "individual part"
+    threshold: 0.05
+    mask_threshold: 0.05
+    engine_config:
+      points_per_side: 128
 
 sam_mesh:
-  use_modes: ['sdf', 'norms']
-  min_area: 1024
-  connections_bin_resolution: 100
-  connections_bin_threshold_percentage: 0.125
-  smoothing_threshold_percentage_size: 0.025
-  smoothing_threshold_percentage_area: 0.025
-  smoothing_iterations: 64
+  use_modes: ['norms', 'sdf', 'matte']  # ALL modes for maximum coverage
+  min_area: 16  # TINY minimum area to capture micro-segments
+  connections_bin_resolution: 400  # MAXIMUM resolution
+  connections_bin_threshold_percentage: 0.005  # ULTRA-LOW threshold
+  smoothing_threshold_percentage_size: 0.0001  # Keep ALL tiny segments
+  smoothing_threshold_percentage_area: 0.0001  # Keep ALL tiny areas
+  smoothing_iterations: 1  # MINIMAL smoothing to preserve all segments
   repartition_cost: 1
-  repartition_lambda: 6
-  repartition_iterations: 1
+  repartition_lambda: 1  # MAXIMUM segments (lowest lambda)
+  repartition_iterations: 5  # MORE iterations for maximum refinement
 
 renderer:
-  target_dim: [1024, 1024]
-  camera_generation_method: icosahedron #octohedron
+  target_dim: [1024, 1024]  # Keep high resolution for better SAM3 performance
+  camera_generation_method: icosahedron  # More viewpoints for better coverage
   renderer_args:
     interpolate_norms: True
-  sampling_args: {radius: 2}
+  sampling_args: {radius: 2.5}  # Slightly larger radius for better view coverage
   lighting_args: {}

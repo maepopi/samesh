@@ -20,7 +20,11 @@ from natsort import natsorted
 from samesh.data.common import NumpyTensor
 from samesh.data.loaders import read_scene, remove_texture, scene2mesh
 from samesh.renderer.renderer import Renderer, render_multiview, colormap_faces, colormap_norms
-from samesh.models.sam import SamModel, Sam2Model, combine_bmasks, colormap_mask, remove_artifacts, point_grid_from_mask
+from samesh.models.sam import (
+    SamModel, Sam2Model, SamOriginalModel, SamHQModel, FastSamModel, MobileSamModel,
+    combine_bmasks, colormap_mask, remove_artifacts, point_grid_from_mask
+)
+from samesh.models.sam3 import Sam3ModelMesh
 from samesh.utils.cameras import *
 from samesh.utils.mesh import duplicate_verts
 from samesh.models.shape_diameter_function import *
@@ -183,7 +187,31 @@ class SamModelMesh(nn.Module):
         self.config.cache = Path(config.cache) if config.cache is not None else None
         self.renderer = Renderer(config.renderer)
         if use_sam and (self.config.cache is None or not self.config.cache.exists() or self.config.cache_overwrite):
-            self.sam = Sam2Model(config.sam, device=device)
+            # Select model type based on configuration
+            model_type = config.sam.get('model_type', 'sam2')  # Default to sam2 for backward compatibility
+            
+            if model_type == 'sam3':
+                self.sam = Sam3ModelMesh(config.sam, device=device)
+            elif model_type == 'sam2':
+                self.sam = Sam2Model(config.sam, device=device)
+            elif model_type == 'sam':
+                self.sam = SamOriginalModel(config.sam, device=device)
+            elif model_type == 'sam_hq':
+                try:
+                    self.sam = SamHQModel(config.sam, device=device)
+                except ImportError as e:
+                    print(f"SAM-HQ not available: {e}")
+                    raise ValueError("SAM-HQ is not properly installed. Please install it or choose a different model.")
+            elif model_type == 'fastsam':
+                try:
+                    self.sam = FastSamModel(config.sam, device=device)
+                except ImportError as e:
+                    print(f"FastSAM not available: {e}")
+                    raise ValueError("FastSAM is not properly installed. Please install it or choose a different model.")
+            elif model_type == 'mobilesam':
+                self.sam = MobileSamModel(config.sam, device=device)
+            else:
+                raise ValueError(f"Unknown model type: {model_type}. Supported types: sam2, sam3, sam, sam_hq, fastsam, mobilesam")
 
     def load(self, scene: Scene, mesh_graph=True):
         """

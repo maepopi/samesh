@@ -9,13 +9,41 @@ from PIL import Image
 from omegaconf import OmegaConf
 from transformers import AutoProcessor, AutoModel
 
-USE_SAMHQ = False
-if USE_SAMHQ:
-    from segment_anything import SamAutomaticMaskGenerator, SamPredictor, sam_model_registry
-else:
-    from sam2.build_sam import build_sam2
-    from sam2.sam2_image_predictor import SAM2ImagePredictor
-    from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+# Import all SAM variants
+from sam2.build_sam import build_sam2
+from sam2.sam2_image_predictor import SAM2ImagePredictor
+from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+
+# Original SAM
+from segment_anything import SamAutomaticMaskGenerator, SamPredictor, sam_model_registry
+
+# SAM-HQ
+try:
+    from segment_anything_hq import SamAutomaticMaskGenerator as SamHQAutomaticMaskGenerator
+    from segment_anything_hq import SamPredictor as SamHQPredictor
+    from segment_anything_hq import sam_model_registry as sam_hq_model_registry
+    SAMHQ_AVAILABLE = True
+except ImportError:
+    print("SAM-HQ not available")
+    SAMHQ_AVAILABLE = False
+
+# FastSAM
+try:
+    from fastsam import FastSAM, FastSAMPrompt
+    FASTSAM_AVAILABLE = True
+except ImportError as e:
+    print(f"FastSAM not available: {e}")
+    FASTSAM_AVAILABLE = False
+
+# MobileSAM
+try:
+    from mobile_sam import sam_model_registry as mobile_sam_model_registry
+    from mobile_sam import SamAutomaticMaskGenerator as MobileSamAutomaticMaskGenerator
+    from mobile_sam import SamPredictor as MobileSamPredictor
+    MOBILESAM_AVAILABLE = True
+except ImportError:
+    print("MobileSAM not available")
+    MOBILESAM_AVAILABLE = False
 
 
 from samesh.data.common import NumpyTensor
@@ -135,14 +163,18 @@ class SamModel(nn.Module):
     def setup_sam(self, mode='auto'):
         """
         """
-        match = re.search(r'vit_(l|tiny|h)', self.config.sam.checkpoint)
-        self.sam_model = sam_model_registry[match.group(0)](checkpoint=self.config.sam.checkpoint)
+        # Handle both old and new config structure
+        sam_config = self.config.sam if hasattr(self.config, 'sam') else self.config
+        checkpoint = sam_config.checkpoint if hasattr(sam_config, 'checkpoint') else sam_config.get('checkpoint')
+        
+        match = re.search(r'vit_(l|tiny|h)', checkpoint)
+        self.sam_model = sam_model_registry[match.group(0)](checkpoint=checkpoint)
         self.sam_model = self.sam_model.to(self.device)
         self.sam_model.eval()
         self.engine = {
             'pred': SamPredictor,
             'auto': SamAutomaticMaskGenerator,
-        }[mode](self.sam_model, **self.config.sam.get('engine_config', {}))
+        }[mode](self.sam_model, **sam_config.get('engine_config', {}))
 
     def setup_grounding_dino(self):
         """
@@ -204,16 +236,178 @@ class SamModel(nn.Module):
 
 class Sam2Model(SamModel):
     """
+    SAM2 Model wrapper
     """
     def setup_sam(self, mode='auto'):
         """
         """
-        self.sam_model = build_sam2(self.config.sam.model_config, self.config.sam.checkpoint, device=self.device, apply_postprocessing=False)
+        # Handle both old and new config structure
+        sam_config = self.config.sam if hasattr(self.config, 'sam') else self.config
+        model_config = sam_config.model_config if hasattr(sam_config, 'model_config') else sam_config.get('model_config')
+        checkpoint = sam_config.checkpoint if hasattr(sam_config, 'checkpoint') else sam_config.get('checkpoint')
+        
+        self.sam_model = build_sam2(model_config, checkpoint, device=self.device, apply_postprocessing=False)
         self.sam_model.eval()
         self.engine = {
             'pred': SAM2ImagePredictor,
             'auto': SAM2AutomaticMaskGenerator,
-        }[mode](self.sam_model, **self.config.sam.get('engine_config', {}))
+        }[mode](self.sam_model, **sam_config.get('engine_config', {}))
+
+
+class SamOriginalModel(SamModel):
+    """
+    Original SAM Model wrapper
+    """
+    def setup_sam(self, mode='auto'):
+        """
+        """
+        sam_config = self.config.sam if hasattr(self.config, 'sam') else self.config
+        checkpoint = sam_config.checkpoint if hasattr(sam_config, 'checkpoint') else sam_config.get('checkpoint')
+        
+        # Extract model type from checkpoint path
+        match = re.search(r'vit_(l|b|h)', checkpoint)
+        model_type = match.group(0) if match else 'vit_h'
+        
+        self.sam_model = sam_model_registry[model_type](checkpoint=checkpoint)
+        self.sam_model = self.sam_model.to(self.device)
+        self.sam_model.eval()
+        self.engine = {
+            'pred': SamPredictor,
+            'auto': SamAutomaticMaskGenerator,
+        }[mode](self.sam_model, **sam_config.get('engine_config', {}))
+
+
+class SamHQModel(SamModel):
+    """
+    SAM-HQ Model wrapper
+    """
+    def setup_sam(self, mode='auto'):
+        """
+        """
+        if not SAMHQ_AVAILABLE:
+            raise ImportError("SAM-HQ not available. Install with: pip install git+https://github.com/SysCV/sam-hq.git")
+            
+        sam_config = self.config.sam if hasattr(self.config, 'sam') else self.config
+        checkpoint = sam_config.checkpoint if hasattr(sam_config, 'checkpoint') else sam_config.get('checkpoint')
+        
+        # Extract model type from checkpoint path
+        match = re.search(r'vit_(l|b|h)', checkpoint)
+        model_type = match.group(0) if match else 'vit_h'
+        
+        self.sam_model = sam_hq_model_registry[model_type](checkpoint=checkpoint)
+        self.sam_model = self.sam_model.to(self.device)
+        self.sam_model.eval()
+        self.engine = {
+            'pred': SamHQPredictor,
+            'auto': SamHQAutomaticMaskGenerator,
+        }[mode](self.sam_model, **sam_config.get('engine_config', {}))
+
+
+class FastSamModel(SamModel):
+    """
+    FastSAM Model wrapper
+    """
+    def setup_sam(self, mode='auto'):
+        """
+        """
+        if not FASTSAM_AVAILABLE:
+            raise ImportError("FastSAM not available. Install with: pip install fastsam")
+            
+        sam_config = self.config.sam if hasattr(self.config, 'sam') else self.config
+        checkpoint = sam_config.checkpoint if hasattr(sam_config, 'checkpoint') else sam_config.get('checkpoint', 'FastSAM-x.pt')
+        
+        self.sam_model = FastSAM(checkpoint)
+        # FastSAM doesn't have separate predictor/generator modes, so we create a wrapper
+        self.engine = FastSamWrapper(self.sam_model, **sam_config.get('engine_config', {}))
+    
+    def process_image(self, image: Image, prompt: dict = None) -> NumpyTensor['n h w']:
+        """
+        FastSAM specific processing
+        """
+        image = np.array(image)
+        
+        # FastSAM processes everything at once
+        everything_results = self.sam_model(image, device=self.device, retina_masks=True, imgsz=1024, conf=0.4, iou=0.9)
+        
+        if hasattr(self.engine, 'everything_prompt'):
+            # Use FastSAM's everything prompt for automatic mask generation
+            prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
+            annotations = prompt_process.everything_prompt()
+        else:
+            # Fallback to direct results
+            annotations = everything_results[0].masks.data.cpu().numpy() if everything_results[0].masks is not None else []
+        
+        if len(annotations) == 0:
+            return np.array([])
+            
+        # Convert to expected format
+        if isinstance(annotations, np.ndarray):
+            masks = annotations
+        else:
+            masks = np.stack([anno if isinstance(anno, np.ndarray) else anno['segmentation'] for anno in annotations])
+        
+        return masks
+
+
+class MobileSamModel(SamModel):
+    """
+    MobileSAM Model wrapper
+    """
+    def setup_sam(self, mode='auto'):
+        """
+        """
+        if not MOBILESAM_AVAILABLE:
+            raise ImportError("MobileSAM not available. Install with: pip install git+https://github.com/ChaoningZhang/MobileSAM.git")
+            
+        sam_config = self.config.sam if hasattr(self.config, 'sam') else self.config
+        checkpoint = sam_config.checkpoint if hasattr(sam_config, 'checkpoint') else sam_config.get('checkpoint')
+        
+        # MobileSAM uses 'vit_t' (tiny) model
+        model_type = 'vit_t'
+        
+        self.sam_model = mobile_sam_model_registry[model_type](checkpoint=checkpoint)
+        self.sam_model = self.sam_model.to(self.device)
+        self.sam_model.eval()
+        self.engine = {
+            'pred': MobileSamPredictor,
+            'auto': MobileSamAutomaticMaskGenerator,
+        }[mode](self.sam_model, **sam_config.get('engine_config', {}))
+
+
+class FastSamWrapper:
+    """
+    Wrapper to make FastSAM compatible with SAM interface
+    """
+    def __init__(self, model, **kwargs):
+        self.model = model
+        self.config = kwargs
+        
+    def generate(self, image):
+        """
+        Generate masks using FastSAM everything prompt
+        """
+        everything_results = self.model(image, device='cuda', retina_masks=True, imgsz=1024, conf=0.4, iou=0.9)
+        
+        if everything_results and everything_results[0].masks is not None:
+            prompt_process = FastSAMPrompt(image, everything_results, device='cuda')
+            masks = prompt_process.everything_prompt()
+            
+            # Convert to expected annotation format
+            annotations = []
+            if isinstance(masks, np.ndarray):
+                for i, mask in enumerate(masks):
+                    annotations.append({
+                        'segmentation': mask,
+                        'area': mask.sum().item(),
+                        'bbox': [0, 0, mask.shape[1], mask.shape[0]],  # Placeholder bbox
+                        'predicted_iou': 1.0,
+                        'point_coords': None,
+                        'stability_score': 1.0,
+                        'crop_box': [0, 0, mask.shape[1], mask.shape[0]]
+                    })
+            return annotations
+        else:
+            return []
 
 
 if __name__ == '__main__':
