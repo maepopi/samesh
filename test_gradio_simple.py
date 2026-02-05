@@ -11,7 +11,7 @@ import sys
 import os
 
 # Add the samesh package to the path
-sys.path.append('/home/maelys/WSL_AI_HUB/TOOLS/samesh/src')
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'src'))
 
 def test_mesh_load(file_path):
     """Test mesh loading"""

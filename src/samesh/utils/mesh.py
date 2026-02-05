@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import trimesh
 from trimesh.base import Trimesh, Scene
@@ -102,21 +104,20 @@ def norm_scene(scene: Scene) -> Scene:
 
 if __name__ == "__main__":
     from samesh.data.loaders import read_mesh
-    mesh = read_mesh('/home/ubuntu/meshseg/tests/examples/0ba4ae3aa97b4298866a2903de4fd1e7.glb')
-    
-    mesh.export('/home/ubuntu/meshseg/tests/examples/0ba4ae3aa97b4298866a2903de4fd1e7.obj')
-    print(mesh.faces)
-    print(mesh.vertices[mesh.faces[:, 0]])
-    mesh = order_faces(mesh)
-    print(mesh.faces)
-    print(mesh.vertices[mesh.faces[:, 0]])
-    
-    mesh.export('/home/ubuntu/meshseg/tests/examples/0ba4ae3aa97b4298866a2903de4fd1e7_sorted.obj')
-    print(mesh.vertices.max(), mesh.vertices.min())
-    mesh = norm_mesh(mesh)
-    print(mesh.vertices.max(), mesh.vertices.min())
-    mesh.export('/home/ubuntu/meshseg/tests/examples/0ba4ae3aa97b4298866a2903de4fd1e7_norm.obj')
 
-    print(mesh.vertices.shape)
+    _repo_root = Path(__file__).resolve().parents[2]  # src/samesh/utils -> repo root
+    _example = _repo_root / "assets" / "example.glb"  # placeholder; use your mesh path
+    if not _example.exists():
+        print("Place a mesh at assets/example.glb or set path below")
+        raise SystemExit(1)
+    mesh = read_mesh(str(_example))
+    out_stem = _example.stem
+    out_dir = _example.parent
+
+    mesh.export(str(out_dir / f"{out_stem}.obj"))
     print(mesh.faces.shape)
-    print(mesh.vertices[mesh.faces].shape)
+    mesh = order_faces(mesh)
+    mesh.export(str(out_dir / f"{out_stem}_sorted.obj"))
+    mesh = norm_mesh(mesh)
+    mesh.export(str(out_dir / f"{out_stem}_norm.obj"))
+    print(mesh.vertices.shape, mesh.faces.shape)

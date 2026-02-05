@@ -15,8 +15,9 @@ from omegaconf import OmegaConf
 import sys
 import os
 
-# Add the samesh package to the path
-sys.path.append('/home/maelys/WSL_AI_HUB/TOOLS/samesh/src')
+# Add the samesh package to the path (repo root / src)
+_REPO_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(_REPO_ROOT / "src"))
 
 from samesh.models.sam_mesh import segment_mesh
 from samesh.data.loaders import read_mesh
@@ -170,6 +171,11 @@ def create_config(
     sam_hq_pred_iou_thresh,
     sam_hq_stability_score_thresh,
     
+    # FastSAM parameters
+    fastsam_conf_thresh,
+    fastsam_iou_thresh,
+    fastsam_imgsz,
+    
     # MobileSAM parameters
     mobilesam_points_per_side,
     mobilesam_pred_iou_thresh,
@@ -193,7 +199,7 @@ def create_config(
     """Create configuration dictionary from parameters"""
     
     config = {
-        'cache': '/tmp/samesh_cache',
+        'cache': '/tmp/samesh_cache',  # override with config or env if needed
         'cache_overwrite': True,
         'output': '/tmp/samesh_output',
         
@@ -205,7 +211,7 @@ def create_config(
     # Add model-specific configuration based on selected model type
     if model_type == 'sam2':
         config['sam']['sam'] = {
-            'checkpoint': '/home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam2_hiera_large.pt',
+            'checkpoint': str(_REPO_ROOT / 'checkpoints' / 'sam2_hiera_large.pt'),
             'model_config': 'sam2_hiera_l.yaml',
             'auto': True,
             'ground': True,
@@ -219,7 +225,7 @@ def create_config(
         }
     elif model_type == 'sam3':
         config['sam']['sam'] = {
-            'checkpoint': '/home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam3.pt',
+            'checkpoint': str(_REPO_ROOT / 'checkpoints' / 'sam3.pt'),
             'auto': True,
             'use_smart_prompts': use_smart_prompts,
             'use_grid_prior': use_grid_prior,
@@ -233,7 +239,7 @@ def create_config(
         }
     elif model_type == 'sam':
         config['sam']['sam'] = {
-            'checkpoint': '/home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam_vit_h_4b8939.pth',
+            'checkpoint': str(_REPO_ROOT / 'checkpoints' / 'sam_vit_h_4b8939.pth'),
             'auto': True,
             'ground': False,
             'engine_config': {
@@ -246,7 +252,7 @@ def create_config(
         }
     elif model_type == 'sam_hq':
         config['sam']['sam'] = {
-            'checkpoint': '/home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam_hq_vit_h.pth',
+            'checkpoint': str(_REPO_ROOT / 'checkpoints' / 'sam_hq_vit_h.pth'),
             'auto': True,
             'ground': False,
             'engine_config': {
@@ -257,9 +263,19 @@ def create_config(
                 'stability_score_offset': 1.0
             }
         }
+    elif model_type == 'fastsam':
+        config['sam']['sam'] = {
+            'checkpoint': str(_REPO_ROOT / 'checkpoints' / 'FastSAM-x.pt'),
+            'auto': True,
+            'engine_config': {
+                'conf': fastsam_conf_thresh,
+                'iou': fastsam_iou_thresh,
+                'imgsz': int(fastsam_imgsz),
+            }
+        }
     elif model_type == 'mobilesam':
         config['sam']['sam'] = {
-            'checkpoint': '/home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/mobile_sam.pt',
+            'checkpoint': str(_REPO_ROOT / 'checkpoints' / 'mobile_sam.pt'),
             'auto': True,
             'ground': False,
             'engine_config': {
@@ -331,6 +347,11 @@ def segment_mesh_with_params(
     sam_hq_pred_iou_thresh,
     sam_hq_stability_score_thresh,
     
+    # FastSAM parameters
+    fastsam_conf_thresh,
+    fastsam_iou_thresh,
+    fastsam_imgsz,
+    
     # MobileSAM parameters
     mobilesam_points_per_side,
     mobilesam_pred_iou_thresh,
@@ -369,6 +390,7 @@ def segment_mesh_with_params(
             use_smart_prompts, use_grid_prior, gemini_api_key, sam3_text_prompt, sam3_threshold, sam3_mask_threshold, sam3_points_per_side,
             sam_points_per_side, sam_pred_iou_thresh, sam_stability_score_thresh,
             sam_hq_points_per_side, sam_hq_pred_iou_thresh, sam_hq_stability_score_thresh,
+            fastsam_conf_thresh, fastsam_iou_thresh, fastsam_imgsz,
             mobilesam_points_per_side, mobilesam_pred_iou_thresh, mobilesam_stability_score_thresh,
             use_modes, min_area, connections_bin_resolution, connections_bin_threshold_percentage,
             smoothing_threshold_percentage_size, smoothing_threshold_percentage_area,
@@ -528,10 +550,10 @@ def create_interface():
                 with gr.Tabs():
                     with gr.Tab("🤖 Model Selection"):
                         model_type = gr.Radio(
-                            choices=["sam2", "sam3", "sam", "sam_hq", "mobilesam"],  # Re-enabled SAM-HQ
+                            choices=["sam2", "sam3", "sam", "sam_hq", "fastsam", "mobilesam"],
                             value="sam3",
                             label="Model Type",
-                            info="SAM3: text prompts + Gemini | SAM2: stable | SAM: classic | SAM-HQ: quality | MobileSAM: efficiency"
+                            info="SAM3: text prompts + Gemini | SAM2: stable | SAM: classic | SAM-HQ: quality | FastSAM: ultra-fast | MobileSAM: efficiency"
                         )
                         
                         # Preset configurations
@@ -780,6 +802,7 @@ def create_interface():
                 use_smart_prompts, use_grid_prior, gemini_api_key, sam3_text_prompt, sam3_threshold, sam3_mask_threshold, sam3_points_per_side,
                 sam_points_per_side, sam_pred_iou_thresh, sam_stability_score_thresh,
                 sam_hq_points_per_side, sam_hq_pred_iou_thresh, sam_hq_stability_score_thresh,
+                fastsam_conf_thresh, fastsam_iou_thresh, fastsam_imgsz,
                 mobilesam_points_per_side, mobilesam_pred_iou_thresh, mobilesam_stability_score_thresh,
                 use_modes, min_area, connections_bin_resolution, connections_bin_threshold_percentage,
                 smoothing_threshold_percentage_size, smoothing_threshold_percentage_area,

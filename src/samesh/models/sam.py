@@ -325,9 +325,14 @@ class FastSamModel(SamModel):
         FastSAM specific processing
         """
         image = np.array(image)
-        
+        sam_config = self.config.sam if hasattr(self.config, 'sam') else self.config
+        engine_cfg = sam_config.get('engine_config', {})
+        imgsz = engine_cfg.get('imgsz', 1024)
+        conf = engine_cfg.get('conf', 0.4)
+        iou = engine_cfg.get('iou', 0.9)
+
         # FastSAM processes everything at once
-        everything_results = self.sam_model(image, device=self.device, retina_masks=True, imgsz=1024, conf=0.4, iou=0.9)
+        everything_results = self.sam_model(image, device=self.device, retina_masks=True, imgsz=imgsz, conf=conf, iou=iou)
         
         if hasattr(self.engine, 'everything_prompt'):
             # Use FastSAM's everything prompt for automatic mask generation
@@ -413,18 +418,25 @@ class FastSamWrapper:
 if __name__ == '__main__':
     import time
 
-    device = 'cuda'
-    image = Image.open('/home/ubuntu/meshseg/tests/examples/goldpot.png')
+    _repo_root = Path(__file__).resolve().parents[3]  # src/samesh/models -> repo root
+    _example_image = _repo_root / 'assets' / 'samesh_examples.png'
+    if not _example_image.exists():
+        _example_image = _repo_root / 'assets' / 'samesh_pipeline.png'  # fallback
+    image = Image.open(_example_image) if _example_image.exists() else None
+    if image is None:
+        print('No example image found in assets/; set image path for testing')
+        raise SystemExit(1)
 
+    device = 'cuda'
     config = OmegaConf.create({
         'sam': {
-            'checkpoint': '/home/ubuntu/meshseg/checkpoints/sam_hq_vit_h.pth',
-            'auto': True, 
+            'checkpoint': str(_repo_root / 'checkpoints' / 'sam_hq_vit_h.pth'),
+            'auto': True,
             'ground': False,
             'engine_config': {'points_per_side': 32},
         },
         'grounding_dino': {
-            'checkpoint': 'IDEA-Research/grounding-dino-tiny', # TODO find larger model
+            'checkpoint': 'IDEA-Research/grounding-dino-tiny',
         },
     })
 
@@ -453,8 +465,8 @@ if __name__ == '__main__':
     config2 = OmegaConf.create({
         'sam': {
             'model_config': 'sam2_hiera_l.yaml',
-            'checkpoint'  : '/home/ubuntu/meshseg/checkpoints/sam2_hiera_large.pt',
-            'auto': True, 
+            'checkpoint': str(_repo_root / 'checkpoints' / 'sam2_hiera_large.pt'),
+            'auto': True,
             'engine_config': {'points_per_side': 32},
         },
     })

@@ -6,8 +6,8 @@ import sys
 import os
 from pathlib import Path
 
-# Add the src directory to the path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+_repo_root = Path(__file__).resolve().parent
+sys.path.insert(0, str(_repo_root / 'src'))
 
 import torch
 import numpy as np
@@ -24,10 +24,9 @@ def test_sam3_model():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
     
-    # Create test configuration
     config = OmegaConf.create({
         'sam': {
-            'checkpoint': '/home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam3.pt',
+            'checkpoint': str(_repo_root / 'checkpoints' / 'sam3.pt'),
             'auto': True,
             'text_prompt': 'object',
             'threshold': 0.5,
@@ -70,8 +69,7 @@ def test_sam3_mesh_integration():
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    # Load the updated configuration
-    config_path = Path('/home/maelys/WSL_AI_HUB/TOOLS/samesh/configs/mesh_segmentation.yaml')
+    config_path = _repo_root / 'configs' / 'mesh_segmentation.yaml'
     
     try:
         config = OmegaConf.load(config_path)
@@ -100,8 +98,7 @@ def main():
     print("SAM3 Integration Test Suite")
     print("=" * 50)
     
-    # Check if SAM3 model exists
-    sam3_path = Path('/home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam3.pt')
+    sam3_path = _repo_root / 'checkpoints' / 'sam3.pt'
     if not sam3_path.exists():
         print(f"✗ SAM3 model not found at {sam3_path}")
         print("Please ensure the model was downloaded correctly.")

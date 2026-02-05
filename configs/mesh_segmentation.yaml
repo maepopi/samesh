@@ -1,7 +1,8 @@
 ---
-cache: /home/maelys/WSL_AI_HUB/TOOLS/samesh/outputs/mesh_segmentation_cache
+# Paths relative to repo root or override with env/absolute paths
+cache: outputs/mesh_segmentation_cache
 cache_overwrite: True
-output: /home/maelys/WSL_AI_HUB/TOOLS/samesh/outputs/mesh_segmentation_output
+output: outputs/mesh_segmentation_output
 
 sam:
   # Model selection: 'sam2' or 'sam3'
@@ -9,7 +10,7 @@ sam:
   
   # SAM2 configuration (legacy)
   sam2:
-    checkpoint: /home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam2_hiera_large.pt
+    checkpoint: checkpoints/sam2_hiera_large.pt
     model_config: sam2_hiera_l.yaml
     auto: True
     ground: True
@@ -23,7 +24,7 @@ sam:
   
   # SAM3 configuration (new) - ULTRA-AGGRESSIVE for maximum segmentation
   sam3:
-    checkpoint: /home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam3.pt
+    checkpoint: checkpoints/sam3.pt
     auto: True
     text_prompt: "individual part"  # More aggressive prompt
     threshold: 0.05  # ULTRA-LOW threshold to capture tiny segments
@@ -33,7 +34,7 @@ sam:
   
   # Active configuration (will be used by the model) - ULTRA-AGGRESSIVE SAM3
   sam:
-    checkpoint: /home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam3.pt
+    checkpoint: checkpoints/sam3.pt
     model_type: sam3
     auto: True
     text_prompt: "individual part"

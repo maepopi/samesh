@@ -274,6 +274,14 @@ The **Gemini Prompt Agent** uses **Google Gemini 2.0 Flash** (multimodal) to loo
 
 ---
 
+## Security & privacy
+
+- **No secrets in repo:** API keys are not stored in code. Gemini uses `GOOGLE_AI_API_KEY` env or the key you enter in the Gradio app (not written to disk). No passwords or tokens in the repo.
+- **Local paths:** Source and configs use repo-relative paths (`checkpoints/`, `configs/`, etc.) and env overrides (e.g. `SAMESH_DATA` for benchmark data). Run from repo root so paths resolve.
+- **Notebooks:** If you add local paths in notebooks, replace them with `PATH` or a placeholder before sharing. Do not commit `.env` or any file containing API keys.
+
+---
+
 ## Contributors
 
 George Tang*, William Zhao, Logan Ford, David Benhaim, Paul Zhang

@@ -28,5 +28,6 @@ echo "📁 Upload a mesh file and experiment with parameters!"
 echo "🔄 Press Ctrl+C to stop the app"
 echo ""
 
-cd /home/maelys/WSL_AI_HUB/TOOLS/samesh
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 python gradio_mesh_segmentation.py

@@ -447,22 +447,20 @@ if __name__ == '__main__':
 
     device = 'cuda'
     
+    _repo_root = Path(__file__).resolve().parents[3]  # src/samesh/models -> repo root
     # Test configuration
     config = OmegaConf.create({
         'sam': {
-            'checkpoint': '/home/maelys/WSL_AI_HUB/TOOLS/samesh/checkpoints/sam3.pt',
+            'checkpoint': str(_repo_root / 'checkpoints' / 'sam3.pt'),
             'auto': True,
-            'text_prompt': 'object',  # Generic text prompt for testing
+            'text_prompt': 'object',
             'threshold': 0.5,
             'mask_threshold': 0.5,
-            'engine_config': {
-                'points_per_side': 32
-            }
+            'engine_config': {'points_per_side': 32}
         }
     })
-    
-    # Create test image (you can replace with actual image path)
-    test_image_path = Path('/home/maelys/WSL_AI_HUB/TOOLS/samesh/assets/samesh_examples.png')
+
+    test_image_path = _repo_root / 'assets' / 'samesh_examples.png'
     if test_image_path.exists():
         image = Image.open(test_image_path).convert('RGB')
         

@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 # Add the src directory to the path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+_repo_root = Path(__file__).resolve().parent
+sys.path.insert(0, str(_repo_root / 'src'))
 
 import torch
 from omegaconf import OmegaConf
@@ -16,30 +17,27 @@ def main():
     """Run SAM3 mesh segmentation example"""
     print("SAM3 Mesh Segmentation Example")
     print("=" * 50)
-    
-    # Check for available mesh files
+
+    # Check for available mesh files (relative to repo root)
     mesh_files = [
-        Path("/home/maelys/WSL_AI_HUB/TOOLS/samesh/canap_trellis_quadremesher.glb"),
-        Path("/home/maelys/WSL_AI_HUB/TOOLS/samesh/canap_trellis_quadremesher_combined.glb"),
+        _repo_root / "canap_trellis_quadremesher.glb",
+        _repo_root / "canap_trellis_quadremesher_combined.glb",
+        _repo_root / "assets" / "example.glb",
     ]
-    
-    # Find available mesh file
+
     mesh_file = None
     for f in mesh_files:
         if f.exists():
             mesh_file = f
             break
-    
+
     if mesh_file is None:
-        print("No mesh files found. Available files should be:")
-        for f in mesh_files:
-            print(f"  - {f}")
+        print("No mesh files found. Place a .glb in repo root or assets/")
         return False
-    
+
     print(f"Using mesh file: {mesh_file}")
-    
-    # Load configuration
-    config_path = Path("/home/maelys/WSL_AI_HUB/TOOLS/samesh/configs/mesh_segmentation.yaml")
+
+    config_path = _repo_root / "configs" / "mesh_segmentation.yaml"
     config = OmegaConf.load(config_path)
     
     # Ensure we're using SAM3
