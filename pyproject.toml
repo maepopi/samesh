@@ -37,6 +37,9 @@ dependencies = [
 
 [project.optional-dependencies]
 
+# FastSAM (YOLOv8-based, faster segmentation). Also download checkpoint: FastSAM-x.pt
+fastsam = ["fastsam"]
+
 # Development dependencies
 dev = []
 

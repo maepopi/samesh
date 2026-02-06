@@ -334,22 +334,74 @@ class FastSamModel(SamModel):
         # FastSAM processes everything at once
         everything_results = self.sam_model(image, device=self.device, retina_masks=True, imgsz=imgsz, conf=conf, iou=iou)
         
+        # Check if we got valid results
+        if everything_results is None or len(everything_results) == 0:
+            return np.zeros((0, image.shape[0], image.shape[1]), dtype=bool)
+        
         if hasattr(self.engine, 'everything_prompt'):
             # Use FastSAM's everything prompt for automatic mask generation
             prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
             annotations = prompt_process.everything_prompt()
         else:
             # Fallback to direct results
-            annotations = everything_results[0].masks.data.cpu().numpy() if everything_results[0].masks is not None else []
+            if everything_results[0].masks is not None:
+                annotations = everything_results[0].masks.data.cpu().numpy()
+            else:
+                annotations = []
         
         if len(annotations) == 0:
-            return np.array([])
-            
-        # Convert to expected format
+            # Return empty 3D array (0, H, W) to maintain shape consistency
+            return np.zeros((0, image.shape[0], image.shape[1]), dtype=bool)
+        
+        # Normalize all masks to 2D before stacking
+        mask_list = []
+        
+        # Convert to list of individual masks
         if isinstance(annotations, np.ndarray):
-            masks = annotations
+            # Already numpy array - iterate over first dimension
+            if annotations.ndim == 3:
+                # (N, H, W) format
+                for i in range(annotations.shape[0]):
+                    mask_list.append(annotations[i])
+            elif annotations.ndim == 2:
+                # Single (H, W) mask
+                mask_list.append(annotations)
+            elif annotations.ndim == 4:
+                # (N, 1, H, W) or similar - squeeze and iterate
+                for i in range(annotations.shape[0]):
+                    mask = annotations[i]
+                    while mask.ndim > 2 and mask.shape[0] == 1:
+                        mask = mask.squeeze(axis=0)
+                    if mask.ndim == 2:
+                        mask_list.append(mask)
         else:
-            masks = np.stack([anno if isinstance(anno, np.ndarray) else anno['segmentation'] for anno in annotations])
+            # List of annotations
+            for anno in annotations:
+                if isinstance(anno, np.ndarray):
+                    mask = anno
+                else:
+                    mask = anno['segmentation']
+                
+                # Ensure mask is 2D (H, W)
+                while mask.ndim > 2:
+                    if mask.shape[0] == 1:
+                        mask = mask.squeeze(axis=0)
+                    else:
+                        mask = mask[0]
+                
+                if mask.ndim == 2 and mask.size > 0:
+                    mask_list.append(mask)
+        
+        if len(mask_list) == 0:
+            # Return empty 3D array (0, H, W) to maintain shape consistency
+            return np.zeros((0, image.shape[0], image.shape[1]), dtype=bool)
+        
+        # Stack all 2D masks into 3D array (N, H, W)
+        masks = np.stack(mask_list, axis=0)
+        
+        # Ensure masks are boolean (FastSAM may return float probabilities)
+        if masks.dtype != bool:
+            masks = masks > 0.5
         
         return masks
 

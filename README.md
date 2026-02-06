@@ -1,7 +1,7 @@
 # Segment Any Mesh
 
 > **Note about this branch**  
-> This branch was created through **Code Vibe** in pure experimentation. It extends the original SAMesh codebase with multiple SAM model support (SAM2 + SAM3), a Gradio app, intelligent prompt agents, and hybrid segmentation strategies. Expect experimental features and evolving APIs.
+> This branch was created through **Code Vibe** in pure experimentation. A **main addition** is a **Gradio app** that lets you quickly test different SAM models (SAM2, SAM3, SAM-HQ, FastSAM, MobileSAM, etc.) and see results in the browser. The branch also adds multiple SAM model support, intelligent prompt agents, and hybrid segmentation strategies. Expect experimental features and evolving APIs.
 
 ---
 
@@ -22,6 +22,7 @@ Samesh handles untextured meshes, and it does so by rendering different modaliti
 
 - [Installation](#installation)
 - [Getting Started](#getting-started)
+- [Model guide (SAM, SAM2, SAM3, SAM-HQ, FastSAM, MobileSAM)](#model-guide-sam-sam2-sam3-sam-hq-fastsam-mobilesam)
 - [Dataset](#dataset)
 - [Parameter Tuning](#parameter-tuning)
 - [SAM3 Integration](#sam3-integration)
@@ -48,6 +49,35 @@ Don't forget to init the submodules and pip install -e on them respectively. We 
 ## Getting Started
 
 Download a SAM2 checkpoint as provided in the SAM2 repo. `notebooks/mesh_samesh.ipynb` and `notebooks/mesh_shape_diameter_function.ipynb` detail how to setup and run SAMesh and ShapeDiam, respectively. Some mesh examples from the curated dataset are provided in `assets`.
+
+---
+
+## Model guide (SAM, SAM2, SAM3, SAM-HQ, FastSAM, MobileSAM)
+
+This branch supports several “Segment Anything”–style models. The Gradio app shows a short description for the selected model; below is a concise reference.
+
+| Model | Source | Best for | Notes |
+|-------|--------|----------|--------|
+| **SAM** | Meta 2023 | Legacy / comparison | Original Segment Anything; ViT-based. Prefer **SAM2** for new use. |
+| **SAM2** | Meta 2024 | **Default for mesh segmentation** | Direct successor of SAM. Hiera backbone, faster and better masks; image + video. |
+| **SAM3** | Meta (latest) | Text-guided segmentation | Adds *text* prompts (e.g. “chair leg”, “surface”). Optional Gemini for smart prompts. |
+| **SAM-HQ** | Community (SysCV) | Sharper mask boundaries | Same idea as SAM with a high-quality output token; finer edges, same promptable design. |
+| **FastSAM** | YOLOv8-based | Speed | ~50× faster, automatic “everything” masking; good when latency matters. |
+| **MobileSAM** | Lightweight | Edge / mobile | Small ViT-tiny; fewer parameters, faster than full SAM. |
+
+- **SAM** — The original [Segment Anything Model](https://github.com/facebookresearch/segment-anything) (2023). Image segmentation with points/boxes. Kept for compatibility; for quality and speed use **SAM2** instead.
+
+- **SAM2** — [Segment Anything in 2D and 3D](https://github.com/facebookresearch/segment-anything-2) (2024). Improves over SAM in architecture (e.g. Hiera), speed, and mask quality. Supports image and video. **Recommended default** for mesh segmentation in this repo.
+
+- **SAM3** — Meta’s latest promptable segmentation model. Adds **text** prompts in addition to points/boxes. You can combine it with the Gemini prompt agent for automatic prompt suggestions. Heavier than SAM2; use when you want semantic, text-driven segmentation.
+
+- **SAM-HQ** — [Segment Anything in High Quality](https://github.com/SysCV/sam-hq). Improves SAM with a learnable high-quality token and better boundary prediction. Same checkpoints/prompting as SAM; choose it when you need **sharper edges** without moving to SAM2/SAM3.
+
+- **FastSAM** — Real-time alternative based on YOLOv8: first stage detects instances, second stage refines. Much faster than SAM/SAM2 with “everything” automatic masking. Good for **throughput** and quick experiments.
+
+- **MobileSAM** — Lightweight SAM variant (ViT-tiny) for **mobile and edge**. Smaller and faster than full SAM; quality is lower than SAM2/SAM-HQ but sufficient for many use cases.
+
+**Suggested choice for mesh segmentation:** **SAM2** or **SAM3** (with text/Gemini if you want semantic control). Use **FastSAM** for speed, **SAM-HQ** for finer boundaries with the original SAM pipeline.
 
 ---
 
@@ -135,7 +165,7 @@ samesh/
 
 ## Gradio App
 
-An interactive mesh segmentation app is provided for quick experimentation.
+A main addition of this branch is an **interactive Gradio app** that lets you **quickly test different SAM models** (SAM2, SAM3, SAM-HQ, FastSAM, MobileSAM, etc.) and **see results** directly in the browser. Upload a mesh, pick a model and preset, run segmentation, and download the segmented mesh—no code required.
 
 ### Run the app
 

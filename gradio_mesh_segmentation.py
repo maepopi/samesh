@@ -14,6 +14,24 @@ import json
 from omegaconf import OmegaConf
 import sys
 import os
+import warnings
+
+# Suppress MobileSAM registry overwrite UserWarnings (conflict with timm/other vision libs)
+warnings.filterwarnings(
+    "ignore",
+    message="Overwriting .* in registry",
+    category=UserWarning,
+)
+
+# PyTorch 2.6+ weights_only=True: patch torch.load to use weights_only=False for trusted checkpoints
+import torch
+_original_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    """Patch torch.load to default to weights_only=False for Ultralytics/FastSAM checkpoints"""
+    if 'weights_only' not in kwargs:
+        kwargs['weights_only'] = False
+    return _original_torch_load(*args, **kwargs)
+torch.load = _patched_torch_load
 
 # Add the samesh package to the path (repo root / src)
 _REPO_ROOT = Path(__file__).resolve().parent
@@ -172,6 +190,7 @@ def create_config(
     sam_hq_stability_score_thresh,
     
     # FastSAM parameters
+    fastsam_checkpoint,
     fastsam_conf_thresh,
     fastsam_iou_thresh,
     fastsam_imgsz,
@@ -265,9 +284,10 @@ def create_config(
         }
     elif model_type == 'fastsam':
         config['sam']['sam'] = {
-            'checkpoint': str(_REPO_ROOT / 'checkpoints' / 'FastSAM-x.pt'),
+            'checkpoint': str(_REPO_ROOT / 'checkpoints' / fastsam_checkpoint),
             'auto': True,
             'engine_config': {
+                'points_per_side': 32,  # Not used by FastSAM, but required by config schema
                 'conf': fastsam_conf_thresh,
                 'iou': fastsam_iou_thresh,
                 'imgsz': int(fastsam_imgsz),
@@ -348,6 +368,7 @@ def segment_mesh_with_params(
     sam_hq_stability_score_thresh,
     
     # FastSAM parameters
+    fastsam_checkpoint,
     fastsam_conf_thresh,
     fastsam_iou_thresh,
     fastsam_imgsz,
@@ -390,7 +411,7 @@ def segment_mesh_with_params(
             use_smart_prompts, use_grid_prior, gemini_api_key, sam3_text_prompt, sam3_threshold, sam3_mask_threshold, sam3_points_per_side,
             sam_points_per_side, sam_pred_iou_thresh, sam_stability_score_thresh,
             sam_hq_points_per_side, sam_hq_pred_iou_thresh, sam_hq_stability_score_thresh,
-            fastsam_conf_thresh, fastsam_iou_thresh, fastsam_imgsz,
+            fastsam_checkpoint, fastsam_conf_thresh, fastsam_iou_thresh, fastsam_imgsz,
             mobilesam_points_per_side, mobilesam_pred_iou_thresh, mobilesam_stability_score_thresh,
             use_modes, min_area, connections_bin_resolution, connections_bin_threshold_percentage,
             smoothing_threshold_percentage_size, smoothing_threshold_percentage_area,
@@ -502,269 +523,149 @@ def apply_preset(preset_name):
 def create_interface():
     with gr.Blocks(title="🎯 Interactive Mesh Segmentation") as demo:
         
-        gr.Markdown("""
-        # 🎯 Interactive Mesh Segmentation
-        
-        Upload a mesh and experiment with **6 different SAM models** for segmentation!
-        
-        **Available Models:**
-        - 🔧 **SAM2**: Latest Meta model with excellent stability
-        - 🎯 **SAM3**: Text-prompt capable with Gemini integration
-        - 🔧 **SAM Original**: The classic foundation model
-        - 🎯 **SAM-HQ**: High-quality variant with better boundaries
-        - ⚡ **FastSAM**: Ultra-fast YOLOv8-based alternative
-        - 📱 **MobileSAM**: Lightweight model for efficiency
-        
-        **Features:**
-        - 📁 Support for GLB, OBJ, STL, PLY formats
-        - 🤖 Choose from 6 different SAM model variants
-        - ⚙️ Full control over all segmentation parameters
-        - 🎨 Instant visual feedback
-        - 📊 Detailed segmentation statistics
-        """)
-        
+        gr.Markdown("**🎯 Interactive Mesh Segmentation** — Upload a mesh, pick a SAM model, then Run. Results appear in the right column.")
+
         with gr.Row():
-            with gr.Column(scale=1):
-                gr.Markdown("## 📁 **Mesh Input**")
-                
-                mesh_file = gr.File(
-                    label="Upload Mesh File",
-                    file_types=[".glb", ".obj", ".stl", ".ply"],
-                    type="filepath"
-                )
-                
-                mesh_info = gr.Textbox(
-                    label="Mesh Information",
-                    lines=8,
-                    interactive=False
-                )
-                
-                mesh_preview = gr.Model3D(
-                    label="Mesh Preview",
-                    height=300
-                )
-                
-            with gr.Column(scale=2):
-                gr.Markdown("## ⚙️ **Segmentation Parameters**")
-                
-                with gr.Tabs():
-                    with gr.Tab("🤖 Model Selection"):
-                        model_type = gr.Radio(
-                            choices=["sam2", "sam3", "sam", "sam_hq", "fastsam", "mobilesam"],
-                            value="sam3",
-                            label="Model Type",
-                            info="SAM3: text prompts + Gemini | SAM2: stable | SAM: classic | SAM-HQ: quality | FastSAM: ultra-fast | MobileSAM: efficiency"
-                        )
-                        
-                        # Preset configurations
-                        gr.Markdown("### 🎯 Quick Presets")
-                        preset_dropdown = gr.Dropdown(
-                            choices=list(get_preset_configs().keys()),
-                            label="Apply Preset Configuration",
-                            value="Balanced"
-                        )
-                    
-                    with gr.Tab("🔧 SAM2 Parameters"):
-                        sam2_points_per_side = gr.Slider(
-                            minimum=8, maximum=128, value=32, step=8,
-                            label="Points Per Side",
-                            info="More points = finer segmentation but slower"
-                        )
-                        sam2_pred_iou_thresh = gr.Slider(
-                            minimum=0.1, maximum=1.0, value=0.5, step=0.1,
-                            label="Prediction IoU Threshold"
-                        )
-                        sam2_stability_score_thresh = gr.Slider(
-                            minimum=0.1, maximum=1.0, value=0.7, step=0.1,
-                            label="Stability Score Threshold"
-                        )
-                    
-                    with gr.Tab("🎯 SAM3 Parameters"):
-                        use_smart_prompts = gr.Checkbox(
-                            value=True,
-                            label="🧠 Use Gemini 2.5 Flash Intelligent Agent",
-                            info="Let Gemini analyze the mesh and generate optimal prompts automatically"
-                        )
-                        
-                        use_grid_prior = gr.Checkbox(
-                            value=True,
-                            label="🔲 Use Grid-Based Priors (Hybrid SAM2+SAM3)",
-                            info="Combine SAM2-style grid sampling with SAM3 text understanding for comprehensive coverage"
-                        )
-                        
-                        gemini_api_key = gr.Textbox(
-                            value="",
-                            label="Google AI API Key (optional)",
-                            type="password",
-                            info="Get your free API key from https://aistudio.google.com/app/apikey"
-                        )
-                        
-                        sam3_text_prompt = gr.Textbox(
-                            value="individual part",
-                            label="Manual Text Prompt (used if Smart Prompts disabled)",
-                            info="Describe what to segment (e.g., 'chair leg', 'surface', 'component')"
-                        )
-                        sam3_threshold = gr.Slider(
-                            minimum=0.01, maximum=1.0, value=0.3, step=0.01,
-                            label="Segmentation Threshold",
-                            info="Lower = more segments"
-                        )
-                        sam3_mask_threshold = gr.Slider(
-                            minimum=0.01, maximum=1.0, value=0.3, step=0.01,
-                            label="Mask Threshold",
-                            info="Lower = finer details"
-                        )
-                        sam3_points_per_side = gr.Slider(
-                            minimum=8, maximum=256, value=64, step=8,
-                            label="Points Per Side",
-                            info="More points = finer segmentation"
-                        )
-                    
-                    with gr.Tab("🔧 SAM Original"):
-                        sam_points_per_side = gr.Slider(
-                            minimum=8, maximum=128, value=32, step=8,
-                            label="Points Per Side",
-                            info="More points = finer segmentation but slower"
-                        )
-                        sam_pred_iou_thresh = gr.Slider(
-                            minimum=0.1, maximum=1.0, value=0.5, step=0.1,
-                            label="Prediction IoU Threshold"
-                        )
-                        sam_stability_score_thresh = gr.Slider(
-                            minimum=0.1, maximum=1.0, value=0.7, step=0.1,
-                            label="Stability Score Threshold"
-                        )
-                    
-                    with gr.Tab("🎯 SAM-HQ"):
-                        sam_hq_points_per_side = gr.Slider(
-                            minimum=8, maximum=128, value=32, step=8,
-                            label="Points Per Side",
-                            info="More points = finer segmentation but slower"
-                        )
-                        sam_hq_pred_iou_thresh = gr.Slider(
-                            minimum=0.1, maximum=1.0, value=0.5, step=0.1,
-                            label="Prediction IoU Threshold"
-                        )
-                        sam_hq_stability_score_thresh = gr.Slider(
-                            minimum=0.1, maximum=1.0, value=0.7, step=0.1,
-                            label="Stability Score Threshold"
-                        )
-                    
-                    with gr.Tab("⚡ FastSAM"):
-                        fastsam_conf_thresh = gr.Slider(
-                            minimum=0.1, maximum=1.0, value=0.4, step=0.1,
-                            label="Confidence Threshold",
-                            info="Higher = more confident predictions only"
-                        )
-                        fastsam_iou_thresh = gr.Slider(
-                            minimum=0.1, maximum=1.0, value=0.9, step=0.1,
-                            label="IoU Threshold",
-                            info="Higher = less overlap between masks"
-                        )
-                        fastsam_imgsz = gr.Slider(
-                            minimum=512, maximum=2048, value=1024, step=256,
-                            label="Image Size",
-                            info="Larger = better quality but slower"
-                        )
-                    
-                    with gr.Tab("📱 MobileSAM"):
-                        mobilesam_points_per_side = gr.Slider(
-                            minimum=8, maximum=128, value=32, step=8,
-                            label="Points Per Side",
-                            info="More points = finer segmentation but slower"
-                        )
-                        mobilesam_pred_iou_thresh = gr.Slider(
-                            minimum=0.1, maximum=1.0, value=0.5, step=0.1,
-                            label="Prediction IoU Threshold"
-                        )
-                        mobilesam_stability_score_thresh = gr.Slider(
-                            minimum=0.1, maximum=1.0, value=0.7, step=0.1,
-                            label="Stability Score Threshold"
-                        )
-                    
-                    with gr.Tab("🔬 Mesh Processing"):
-                        use_modes = gr.CheckboxGroup(
-                            choices=["norms", "sdf", "matte"],
-                            value=["norms", "sdf"],
-                            label="Rendering Modes",
-                            info="Different ways to analyze the mesh"
-                        )
-                        
-                        min_area = gr.Slider(
-                            minimum=1, maximum=2000, value=256, step=1,
-                            label="Minimum Segment Area",
-                            info="Smaller = keep tiny segments"
-                        )
-                        
-                        connections_bin_resolution = gr.Slider(
-                            minimum=50, maximum=500, value=200, step=10,
-                            label="Connection Resolution"
-                        )
-                        
-                        connections_bin_threshold_percentage = gr.Slider(
-                            minimum=0.001, maximum=0.2, value=0.05, step=0.001,
-                            label="Connection Threshold %"
-                        )
-                        
-                        smoothing_threshold_percentage_size = gr.Slider(
-                            minimum=0.0001, maximum=0.1, value=0.01, step=0.0001,
-                            label="Size Smoothing Threshold %"
-                        )
-                        
-                        smoothing_threshold_percentage_area = gr.Slider(
-                            minimum=0.0001, maximum=0.1, value=0.01, step=0.0001,
-                            label="Area Smoothing Threshold %"
-                        )
-                        
-                        smoothing_iterations = gr.Slider(
-                            minimum=1, maximum=100, value=32, step=1,
-                            label="Smoothing Iterations",
-                            info="Fewer = preserve more segments"
-                        )
-                        
-                        repartition_lambda = gr.Slider(
-                            minimum=1, maximum=10, value=3, step=1,
-                            label="Repartition Lambda",
-                            info="Lower = more segments"
-                        )
-                        
-                        repartition_iterations = gr.Slider(
-                            minimum=1, maximum=10, value=2, step=1,
-                            label="Repartition Iterations"
-                        )
-                    
-                    with gr.Tab("🎨 Rendering"):
-                        target_dim = gr.Slider(
-                            minimum=256, maximum=2048, value=1024, step=128,
-                            label="Render Resolution",
-                            info="Higher = better quality but slower"
-                        )
-                        
-                        sampling_radius = gr.Slider(
-                            minimum=1.0, maximum=5.0, value=2.5, step=0.1,
-                            label="Camera Sampling Radius"
-                        )
-        
+            mesh_file = gr.File(
+                label="📁 Upload Mesh File",
+                file_types=[".glb", ".obj", ".stl", ".ply"],
+                type="filepath",
+                scale=1
+            )
+
         with gr.Row():
-            segment_btn = gr.Button("🚀 Run Segmentation", variant="primary", size="lg")
-        
+            mesh_info = gr.Textbox(
+                label="Mesh Information",
+                lines=3,
+                max_lines=5,
+                interactive=False,
+                scale=1,
+                min_width=180
+            )
+            mesh_preview = gr.Model3D(
+                label="Mesh Preview",
+                height=180,
+                scale=1,
+                min_width=200
+            )
+
         with gr.Row():
-            with gr.Column():
-                result_info = gr.Textbox(
-                    label="Segmentation Results",
-                    lines=10,
-                    interactive=False
+            with gr.Column(scale=1, min_width=300):
+                gr.Markdown("### ⚙️ Parameters")
+
+                MODEL_CHOICES = [
+                    ("SAM3", "sam3"),
+                    ("SAM2", "sam2"),
+                    ("FastSAM", "fastsam"),
+                    ("SAM (original)", "sam"),
+                    ("SAM-HQ", "sam_hq"),
+                    ("MobileSAM", "mobilesam"),
+                ]
+                model_type = gr.Dropdown(
+                    choices=MODEL_CHOICES,
+                    value="sam3",
+                    label="Model",
+                    info="SAM2/SAM3 work out of the box. FastSAM optional: pip install fastsam (then download FastSAM-x.pt checkpoint).",
+                    allow_custom_value=False,
                 )
-            
-            with gr.Column():
+                preset_dropdown = gr.Dropdown(
+                    choices=list(get_preset_configs().keys()),
+                    value="Balanced",
+                    label="Preset",
+                    info="Quick apply: Conservative, Balanced, Aggressive, Ultra-Aggressive"
+                )
+
+                MODEL_DESCRIPTIONS = {
+                    "sam": "**SAM (original)** — Meta 2023. First Segment Anything Model, ViT-based. Legacy; use SAM2 for better quality and speed.",
+                    "sam2": "**SAM2** — Meta 2024. Direct successor of SAM. Hiera backbone, faster and better masks. Best default for mesh segmentation.",
+                    "sam3": "**SAM3** — Meta, latest. Adds *text* prompting (e.g. \"chair leg\", \"surface\"). Optional Gemini agent for smart prompts.",
+                    "sam_hq": "**SAM-HQ** — Community (SysCV). Same as SAM with sharper mask boundaries; high-quality output token. Good for fine edges.",
+                    "fastsam": "**FastSAM** — YOLOv8-based. ~50× faster, automatic \"everything\" masking. Best when speed matters.",
+                    "mobilesam": "**MobileSAM** — Lightweight ViT-tiny. Small and fast for edge/mobile; fewer parameters than full SAM.",
+                }
+                model_description = gr.Markdown(value=MODEL_DESCRIPTIONS["sam3"])
+
+                with gr.Accordion("Model parameters", open=True):
+                    with gr.Row(visible=False) as row_sam2:
+                        with gr.Column():
+                            sam2_points_per_side = gr.Slider(8, 128, value=32, step=8, label="Points Per Side")
+                            sam2_pred_iou_thresh = gr.Slider(0.1, 1.0, value=0.5, step=0.1, label="Prediction IoU Threshold")
+                            sam2_stability_score_thresh = gr.Slider(0.1, 1.0, value=0.7, step=0.1, label="Stability Score Threshold")
+
+                    with gr.Row(visible=True) as row_sam3:
+                        with gr.Column():
+                            use_smart_prompts = gr.Checkbox(value=True, label="🧠 Use Gemini 2.5 Flash Intelligent Agent")
+                            use_grid_prior = gr.Checkbox(value=True, label="🔲 Use Grid-Based Priors (Hybrid SAM2+SAM3)")
+                            gemini_api_key = gr.Textbox(value="", label="Google AI API Key (optional)", type="password")
+                            sam3_text_prompt = gr.Textbox(value="individual part", label="Manual Text Prompt")
+                            sam3_threshold = gr.Slider(0.01, 1.0, value=0.3, step=0.01, label="Segmentation Threshold")
+                            sam3_mask_threshold = gr.Slider(0.01, 1.0, value=0.3, step=0.01, label="Mask Threshold")
+                            sam3_points_per_side = gr.Slider(8, 256, value=64, step=8, label="Points Per Side")
+
+                    with gr.Row(visible=False) as row_sam:
+                        with gr.Column():
+                            sam_points_per_side = gr.Slider(8, 128, value=32, step=8, label="Points Per Side")
+                            sam_pred_iou_thresh = gr.Slider(0.1, 1.0, value=0.5, step=0.1, label="Prediction IoU Threshold")
+                            sam_stability_score_thresh = gr.Slider(0.1, 1.0, value=0.7, step=0.1, label="Stability Score Threshold")
+
+                    with gr.Row(visible=False) as row_sam_hq:
+                        with gr.Column():
+                            sam_hq_points_per_side = gr.Slider(8, 128, value=32, step=8, label="Points Per Side")
+                            sam_hq_pred_iou_thresh = gr.Slider(0.1, 1.0, value=0.5, step=0.1, label="Prediction IoU Threshold")
+                            sam_hq_stability_score_thresh = gr.Slider(0.1, 1.0, value=0.7, step=0.1, label="Stability Score Threshold")
+
+                    with gr.Row(visible=False) as row_fastsam:
+                        with gr.Column():
+                            FASTSAM_SUBMODELS = [
+                                ("FastSAM-x (YOLOv8x, best quality)", "FastSAM-x.pt"),
+                                ("FastSAM-s (YOLOv8s, faster)", "FastSAM-s.pt"),
+                            ]
+                            fastsam_checkpoint = gr.Dropdown(
+                                choices=FASTSAM_SUBMODELS,
+                                value="FastSAM-x.pt",
+                                label="FastSAM submodel",
+                                info="Download with: python scripts/download_fastsam_checkpoints.py"
+                            )
+                            fastsam_conf_thresh = gr.Slider(0.1, 1.0, value=0.4, step=0.1, label="Confidence Threshold")
+                            fastsam_iou_thresh = gr.Slider(0.1, 1.0, value=0.9, step=0.1, label="IoU Threshold")
+                            fastsam_imgsz = gr.Slider(512, 2048, value=1024, step=256, label="Image Size")
+
+                    with gr.Row(visible=False) as row_mobilesam:
+                        with gr.Column():
+                            mobilesam_points_per_side = gr.Slider(8, 128, value=32, step=8, label="Points Per Side")
+                            mobilesam_pred_iou_thresh = gr.Slider(0.1, 1.0, value=0.5, step=0.1, label="Prediction IoU Threshold")
+                            mobilesam_stability_score_thresh = gr.Slider(0.1, 1.0, value=0.7, step=0.1, label="Stability Score Threshold")
+
+                with gr.Accordion("Mesh processing & Rendering", open=False):
+                    use_modes = gr.CheckboxGroup(choices=["norms", "sdf", "matte"], value=["norms", "sdf"], label="Rendering Modes")
+                    min_area = gr.Slider(1, 2000, value=256, step=1, label="Minimum Segment Area")
+                    connections_bin_resolution = gr.Slider(50, 500, value=200, step=10, label="Connection Resolution")
+                    connections_bin_threshold_percentage = gr.Slider(0.001, 0.2, value=0.05, step=0.001, label="Connection Threshold %")
+                    smoothing_threshold_percentage_size = gr.Slider(0.0001, 0.1, value=0.01, step=0.0001, label="Size Smoothing Threshold %")
+                    smoothing_threshold_percentage_area = gr.Slider(0.0001, 0.1, value=0.01, step=0.0001, label="Area Smoothing Threshold %")
+                    smoothing_iterations = gr.Slider(1, 100, value=32, step=1, label="Smoothing Iterations")
+                    repartition_lambda = gr.Slider(1, 10, value=3, step=1, label="Repartition Lambda")
+                    repartition_iterations = gr.Slider(1, 10, value=2, step=1, label="Repartition Iterations")
+                    target_dim = gr.Slider(256, 2048, value=1024, step=128, label="Render Resolution")
+                    sampling_radius = gr.Slider(1.0, 5.0, value=2.5, step=0.1, label="Camera Sampling Radius")
+
+                segment_btn = gr.Button("🚀 Run Segmentation", variant="primary", size="lg")
+
+            with gr.Column(scale=1, min_width=300):
+                gr.Markdown("### 📊 Result")
                 result_preview = gr.Model3D(
                     label="Segmented Mesh",
-                    height=400
+                    height=280
                 )
-                
-                download_result = gr.File(
-                    label="Download Segmented Mesh",
+                result_info = gr.Textbox(
+                    label="Console",
+                    lines=6,
+                    max_lines=12,
                     interactive=False
+                )
+                download_result = gr.DownloadButton(
+                    label="📥 Download Segmented Mesh",
+                    value=None
                 )
         
         # Event handlers
@@ -773,7 +674,25 @@ def create_interface():
             inputs=[mesh_file],
             outputs=[mesh_info, mesh_preview]
         )
-        
+
+        def on_model_change(choice):
+            desc = MODEL_DESCRIPTIONS.get(choice, MODEL_DESCRIPTIONS["sam3"])
+            return (
+                desc,
+                gr.update(visible=(choice == "sam2")),
+                gr.update(visible=(choice == "sam3")),
+                gr.update(visible=(choice == "sam")),
+                gr.update(visible=(choice == "sam_hq")),
+                gr.update(visible=(choice == "fastsam")),
+                gr.update(visible=(choice == "mobilesam")),
+            )
+
+        model_type.change(
+            fn=on_model_change,
+            inputs=[model_type],
+            outputs=[model_description, row_sam2, row_sam3, row_sam, row_sam_hq, row_fastsam, row_mobilesam]
+        )
+
         # Apply preset configurations
         def apply_preset_values(preset_name):
             presets = get_preset_configs()
@@ -794,15 +713,27 @@ def create_interface():
             outputs=[sam3_threshold, sam3_mask_threshold, min_area, repartition_lambda, smoothing_iterations]
         )
         
+        def segment_mesh_with_params_wrapper(*args):
+            # Some Gradio versions send fewer values; insert FastSAM defaults if needed
+            if len(args) == 31:
+                args = list(args)
+                # Insert after sam_hq (pos 17): fastsam_checkpoint, conf=0.4, iou=0.9, imgsz=1024
+                args.insert(17, "FastSAM-x.pt")
+                args.insert(18, 0.4)
+                args.insert(19, 0.9)
+                args.insert(20, 1024)
+                args = tuple(args)
+            return segment_mesh_with_params(*args)
+
         segment_btn.click(
-            fn=segment_mesh_with_params,
+            fn=segment_mesh_with_params_wrapper,
             inputs=[
                 model_type,
                 sam2_points_per_side, sam2_pred_iou_thresh, sam2_stability_score_thresh,
                 use_smart_prompts, use_grid_prior, gemini_api_key, sam3_text_prompt, sam3_threshold, sam3_mask_threshold, sam3_points_per_side,
                 sam_points_per_side, sam_pred_iou_thresh, sam_stability_score_thresh,
                 sam_hq_points_per_side, sam_hq_pred_iou_thresh, sam_hq_stability_score_thresh,
-                fastsam_conf_thresh, fastsam_iou_thresh, fastsam_imgsz,
+                fastsam_checkpoint, fastsam_conf_thresh, fastsam_iou_thresh, fastsam_imgsz,
                 mobilesam_points_per_side, mobilesam_pred_iou_thresh, mobilesam_stability_score_thresh,
                 use_modes, min_area, connections_bin_resolution, connections_bin_threshold_percentage,
                 smoothing_threshold_percentage_size, smoothing_threshold_percentage_area,
